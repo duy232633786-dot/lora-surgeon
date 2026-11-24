@@ -24,6 +24,11 @@ How the sandbox works: there are 8 modules with `r = 16`. A fixed low-rank "worl
 - **Gen-2** warm-starts from Gen-1 and trains on REASON level 1 at a high learning rate.
 - **Gen-3** warm-starts from Gen-2 and trains on full REASON at a lower learning rate, with no TOOL replay.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/tradeoff-dark.svg">
+  <img alt="Toy sandbox trade-off: orthogonal projection recovers more TOOL accuracy at lower REASON cost than linear subtraction at every gamma" src="docs/figures/tradeoff-light.svg" width="100%">
+</picture>
+
 The table shows held-out relative squared error ×100, averaged over 5 seeds (lower is better):
 
 | Adapter | TOOL error | REASON error | TOOL vs Gen-3 | REASON vs Gen-3 |
@@ -43,6 +48,8 @@ What the sandbox shows, and where it stops:
 - **Healing is not free.** Every setting gives back some REASON. Weight-space surgery moves you along a trade-off curve; it does not recover Gen-1 tool skill for free.
 - **If Gen-3 already recovered** (try `--replay 0.05`), de-forgetting only adds error. Run `lora-surgeon diff` and evaluate before you operate.
 - This is a linear toy where forgetting comes only from shared LoRA factors. It is not evidence about any particular LLM.
+
+All figures in this README are produced by `pip install -e ".[plots]" && python examples/make_figures.py`. The trade-off chart is recomputed from the toy run; the production charts plot the tables below.
 
 The script also writes `examples/toy_out/gen{1,2,3}.gguf`, so you can run the CLI on real files:
 
@@ -71,6 +78,11 @@ We studied a 4B-parameter hybrid-attention multimodal agent (`r = 64, α = 64`, 
 3. **`Gen-3` (Full-Scale Continual SFT from `Gen-2`):** Trained for 12+ hours (`lr = 2e-5`, 138M tokens) starting from `Gen-2`. Quantitative reasoning surged (`35.6% → 59.4%`) and diagram VQA improved (`79.4% → 84.1%`), **yet `Gen-3` still failed strict regression gates against `Gen-1`** because `Gen-2`'s forgetting scar remained embedded in the adapter weights.
 
 #### Phenomenon 1: The `eval_loss` Mirage & Token Signal Dilution
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/evalloss-dark.svg">
+  <img alt="eval_loss keeps falling from step 800 to 1200 while held-out exact tool-argument accuracy peaks at step 800 and drops" src="docs/figures/evalloss-light.svg" width="100%">
+</picture>
 
 During `Gen-3` training, we tracked both standard validation cross-entropy (`eval_loss`) and live greedy tool-call generation on a held-out 80-case development split every 100 steps:
 
@@ -145,6 +157,11 @@ Unlike naive interpolation $(1 - \lambda)\Delta W_3 + \lambda \Delta W_1$ (which
 
 #### Exact Factored Frobenius-Orthogonal Projection
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/projection-dark.svg">
+  <img alt="Schematic: linear mode subtracts all of Gen-2 drift F; orthogonal mode subtracts only the component of F outside the protected subspace of Gen-3 minus Gen-2" src="docs/figures/projection-light.svg" width="100%">
+</picture>
+
 Let $\delta_{\text{new}} = U \Sigma V^\top$ be the thin QR-SVD of the latest capability update, and let $U_k \in \mathbb{R}^{d_{\text{out}} \times k}, V_k \in \mathbb{R}^{d_{\text{in}} \times k}$ span the top-$k$ singular directions capturing fraction $\tau \in [0, 1]$ (default `0.85`) of $\|\delta_{\text{new}}\|_F^2$. Define the protected matrix subspace:
 
 $$\mathcal{S}_k = \big\{ U_k C V_k^\top \;:\; C \in \mathbb{R}^{k \times k} \big\}$$
@@ -180,6 +197,11 @@ Before running the full 496-case acceptance suite, we compared five rank-64 QR-S
 **Key Takeaway:** Any formulation that scales $\Delta W_3$ below `1.0` (`0.65`, `0.75`, or even `0.88`) immediately degrades multi-step quantitative reasoning, whereas keeping `1.0 * ΔW_3` and subtracting `0.40 * (ΔW_2 - ΔW_1)` lifted held-out exact parameter accuracy by **+15.0 percentage points** without hurting dev reasoning.
 
 ### 2. Full 496-Case Frozen Benchmark Evaluation (and Evidence of Subspace Entanglement)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/generations-dark.svg">
+  <img alt="Six benchmark suites across Gen-1, Gen-2, Gen-3 and the linear de-forget adapter" src="docs/figures/generations-light.svg" width="100%">
+</picture>
 
 Evaluating the global linear trajectory de-forgetting adapter (`ΔW_3 + 0.40(ΔW_1 - ΔW_2)`, synthesized on CPU in `17.3s` with `99.97%` mean SVD energy retention) across the complete 496-case frozen acceptance suite revealed both the power and the exact theoretical boundary of uniform linear surgery:
 
