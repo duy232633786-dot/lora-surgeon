@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lora-surgeon"
+version = "0.1.0"
+description = "CPU-native GGUF & Safetensors LoRA weight surgery in O(d*r^2) via Thin QR-SVD and Frobenius-orthogonal continual de-forgetting."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "gguf>=0.10.0",
+    "safetensors>=0.4.0",
+]
+keywords = ["lora", "gguf", "llama-cpp", "model-merging", "task-arithmetic", "continual-learning", "svd"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+lora-surgeon = "lora_surgeon:main"
+
+[tool.setuptools]
+py-modules = ["lora_surgeon"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
