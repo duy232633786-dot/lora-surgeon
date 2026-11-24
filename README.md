@@ -1,6 +1,6 @@
 # lora-surgeon
 
-**CPU-native GGUF & Safetensors LoRA weight surgery in $O(d \cdot r^2)$ — Continual de-forgetting via Thin QR-SVD and Frobenius-orthogonal subspace projection.**
+**CPU-native GGUF & Safetensors LoRA weight surgery in $`O(d \cdot r^2)`$ — Continual de-forgetting via Thin QR-SVD and Frobenius-orthogonal subspace projection.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -63,9 +63,11 @@ lora-surgeon deforget --v1 examples/toy_out/gen1.gguf --v2 examples/toy_out/gen2
 
 ## Why This Exists: A Real-World Continual SFT Post-Mortem
 
-Most model-merging literature (*Task Arithmetic*, *TIES*, *DARE*, *WiSE-FT*) studies **parallel** adapters fine-tuned independently from a shared base checkpoint $W_0$:
+Most model-merging literature (*Task Arithmetic*, *TIES*, *DARE*, *WiSE-FT*) studies **parallel** adapters fine-tuned independently from a shared base checkpoint $`W_0`$:
 
-$$W_A = W_0 + \Delta W_A, \qquad W_B = W_0 + \Delta W_B$$
+```math
+W_A = W_0 + \Delta W_A, \qquad W_B = W_0 + \Delta W_B
+```
 
 In production AI engineering, however, teams rarely train isolated parallel branches forever. Instead, models evolve **sequentially across generations** (`Gen-1 → Gen-2 → Gen-3`), warm-starting each LoRA adapter from the previous generation's best checkpoint to accumulate capabilities over time.
 
@@ -104,56 +106,68 @@ Token accounting across structured tool-calling samples revealed extreme gradien
 
 #### Phenomenon 2: Trajectory Geometry in Low-Rank Weight Space
 
-Inspecting the three sequential adapters ($\Delta W_1, \Delta W_2, \Delta W_3$) across all 128 adapted modules revealed two striking geometric properties:
+Inspecting the three sequential adapters ($`\Delta W_1, \Delta W_2, \Delta W_3`$) across all 128 adapted modules revealed two striking geometric properties:
 
 | Quantity | Value | Geometric Interpretation |
 |---|---:|---|
-| $\|\Delta W_1\|_F$ | `15.5620` | `Gen-1` clean tool-calling adapter norm |
-| $\|\Delta W_2\|_F$ | `16.2898` | `Gen-2` adapter norm |
-| $\|\Delta W_3\|_F$ | `17.0885` | `Gen-3` adapter norm |
-| $\|\delta_{1 \to 2}\|_F = \|\Delta W_2 - \Delta W_1\|_F$ | `4.9538` | `Gen-2`'s high-LR step (`5e-5`) moved further than `Gen-3`! |
-| $\|\delta_{2 \to 3}\|_F = \|\Delta W_3 - \Delta W_2\|_F$ | `4.6608` | `Gen-3`'s recovery + reasoning step (`2e-5`) |
-| $\cos(\delta_{1 \to 2},\; \delta_{2 \to 3})$ | `+0.1063` | Globally near-orthogonal steps in $\mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ |
-| Coordinate sign opposition $\mathbb{P}[(\delta_{1 \to 2})_{ij}(\delta_{2 \to 3})_{ij} < 0]$ | **`47.09%`** | Nearly half of all weight coordinates in `Gen-3` were actively reversing `Gen-2` drift |
-| Rank-64 SVD energy retention of $\Delta W_1 \oplus \Delta W_2 \oplus \Delta W_3$ | **`99.97%`** | Sequential LoRA updates remain tightly confined to a shared rank-64 subspace |
+| $`\Vert \Delta W_1\Vert _F`$ | `15.5620` | `Gen-1` clean tool-calling adapter norm |
+| $`\Vert \Delta W_2\Vert _F`$ | `16.2898` | `Gen-2` adapter norm |
+| $`\Vert \Delta W_3\Vert _F`$ | `17.0885` | `Gen-3` adapter norm |
+| $`\Vert \delta_{1 \to 2}\Vert _F = \Vert \Delta W_2 - \Delta W_1\Vert _F`$ | `4.9538` | `Gen-2`'s high-LR step (`5e-5`) moved further than `Gen-3`! |
+| $`\Vert \delta_{2 \to 3}\Vert _F = \Vert \Delta W_3 - \Delta W_2\Vert _F`$ | `4.6608` | `Gen-3`'s recovery + reasoning step (`2e-5`) |
+| $`\cos(\delta_{1 \to 2},\; \delta_{2 \to 3})`$ | `+0.1063` | Globally near-orthogonal steps in $`\mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}`$ |
+| Coordinate sign opposition $`\mathbb{P}[(\delta_{1 \to 2})_{ij}(\delta_{2 \to 3})_{ij} < 0]`$ | **`47.09%`** | Nearly half of all weight coordinates in `Gen-3` were actively reversing `Gen-2` drift |
+| Rank-64 SVD energy retention of $`\Delta W_1 \oplus \Delta W_2 \oplus \Delta W_3`$ | **`99.97%`** | Sequential LoRA updates remain tightly confined to a shared rank-64 subspace |
 
 ---
 
 ## Mathematical Formulation & Algorithms
 
-### 1. Exact $O((d_{\text{out}} + d_{\text{in}}) r^2)$ Trace-Factored Diagnostics
+### 1. Exact $`O((d_{\text{out}} + d_{\text{in}}) r^2)`$ Trace-Factored Diagnostics
 
-Materializing dense $\Delta W = \frac{\alpha}{r} B A \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ matrices across 128+ layers of modern LLMs wastes gigabytes of RAM and tens of seconds on CPU. Given any two low-rank sums $\Delta W_1 = B_1 A_1$ (rank $R_1$) and $\Delta W_2 = B_2 A_2$ (rank $R_2$), `lora-surgeon` computes exact Frobenius inner products via cyclic trace permutation:
+Materializing dense $`\Delta W = \frac{\alpha}{r} B A \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}`$ matrices across 128+ layers of modern LLMs wastes gigabytes of RAM and tens of seconds on CPU. Given any two low-rank sums $`\Delta W_1 = B_1 A_1`$ (rank $`R_1`$) and $`\Delta W_2 = B_2 A_2`$ (rank $`R_2`$), `lora-surgeon` computes exact Frobenius inner products via cyclic trace permutation:
 
-$$\langle B_1 A_1,\; B_2 A_2 \rangle_F = \mathrm{tr}(A_1^\top B_1^\top B_2 A_2) = \mathrm{tr}\!\Big(\underbrace{(B_1^\top B_2)}_{R_1 \times R_2} \underbrace{(A_2 A_1^\top)}_{R_2 \times R_1}\Big)$$
+```math
+\langle B_1 A_1,\; B_2 A_2 \rangle_F = \mathrm{tr}(A_1^\top B_1^\top B_2 A_2) = \mathrm{tr}\!\Big(\underbrace{(B_1^\top B_2)}_{R_1 \times R_2} \underbrace{(A_2 A_1^\top)}_{R_2 \times R_1}\Big)
+```
 
-Differences $\Delta W_2 - \Delta W_1 = [B_2, -B_1][A_2^\top, A_1^\top]^\top$ are evaluated identically at rank $R_1 + R_2$, requiring **zero $d_{\text{out}} \times d_{\text{in}}$ allocations** and running in `< 2s` on CPU.
+Differences $`\Delta W_2 - \Delta W_1 = [B_2, -B_1][A_2^\top, A_1^\top]^\top`$ are evaluated identically at rank $`R_1 + R_2`$, requiring **zero $`d_{\text{out}} \times d_{\text{in}}`$ allocations** and running in `< 2s` on CPU.
 
-### 2. Exact Thin QR-SVD Compression in $O((d_{\text{out}} + d_{\text{in}}) R^2)$
+### 2. Exact Thin QR-SVD Compression in $`O((d_{\text{out}} + d_{\text{in}}) R^2)`$
 
-Suppose we form a linear or projected combination of $m$ adapters:
+Suppose we form a linear or projected combination of $`m`$ adapters:
 
-$$\Delta W_{\text{comb}} = \sum_{i=1}^m c_i B_i A_i = \mathbf{B}\mathbf{A}, \qquad \mathbf{B} \in \mathbb{R}^{d_{\text{out}} \times R},\; \mathbf{A} \in \mathbb{R}^{R \times d_{\text{in}}},\; R = \sum_{i=1}^m r_i$$
+```math
+\Delta W_{\text{comb}} = \sum_{i=1}^m c_i B_i A_i = \mathbf{B}\mathbf{A}, \qquad \mathbf{B} \in \mathbb{R}^{d_{\text{out}} \times R},\; \mathbf{A} \in \mathbb{R}^{R \times d_{\text{in}}},\; R = \sum_{i=1}^m r_i
+```
 
-Instead of running a dense $O(d_{\text{out}} d_{\text{in}} \min(d_{\text{out}}, d_{\text{in}}))$ SVD, we compute reduced thin QR factorizations of both tall-skinny factors:
+Instead of running a dense $`O(d_{\text{out}} d_{\text{in}} \min(d_{\text{out}}, d_{\text{in}}))`$ SVD, we compute reduced thin QR factorizations of both tall-skinny factors:
 
-$$\mathbf{B} = Q_B R_B \quad (Q_B \in \mathbb{R}^{d_{\text{out}} \times R}), \qquad \mathbf{A}^\top = Q_A R_A \quad (Q_A \in \mathbb{R}^{d_{\text{in}} \times R})$$
+```math
+\mathbf{B} = Q_B R_B \quad (Q_B \in \mathbb{R}^{d_{\text{out}} \times R}), \qquad \mathbf{A}^\top = Q_A R_A \quad (Q_A \in \mathbb{R}^{d_{\text{in}} \times R})
+```
 
-and decompose only the tiny $R \times R$ core matrix ($R \le 192$):
+and decompose only the tiny $`R \times R`$ core matrix ($`R \le 192`$):
 
-$$M = R_B R_A^\top = \hat{U} \Sigma \hat{V}^\top \in \mathbb{R}^{R \times R}$$
+```math
+M = R_B R_A^\top = \hat{U} \Sigma \hat{V}^\top \in \mathbb{R}^{R \times R}
+```
 
-Since $Q_B$ and $Q_A$ have strictly orthonormal columns, $(Q_B \hat{U}) \Sigma (\hat{V}^\top Q_A^\top)$ is **mathematically identical to the exact full-matrix SVD** of $\Delta W_{\text{comb}}$ (verified to $\sim 2 \times 10^{-7}$ relative float32 error in `--self-test`), while running **~500× faster**. Truncating to target rank $r$ with balanced singular-value scaling yields a drop-in rank-$r$ adapter:
+Since $`Q_B`$ and $`Q_A`$ have strictly orthonormal columns, $`(Q_B \hat{U}) \Sigma (\hat{V}^\top Q_A^\top)`$ is **mathematically identical to the exact full-matrix SVD** of $`\Delta W_{\text{comb}}`$ (verified to $`\sim 2 \times 10^{-7}`$ relative float32 error in `--self-test`), while running **~500× faster**. Truncating to target rank $`r`$ with balanced singular-value scaling yields a drop-in rank-$`r`$ adapter:
 
-$$B_{\text{new}} = Q_B \hat{U}_{:, :r} \Sigma_{:r}^{1/2}, \qquad A_{\text{new}} = \Sigma_{:r}^{1/2} \hat{V}_{:, :r}^\top Q_A^\top$$
+```math
+B_{\text{new}} = Q_B \hat{U}_{:, :r} \Sigma_{:r}^{1/2}, \qquad A_{\text{new}} = \Sigma_{:r}^{1/2} \hat{V}_{:, :r}^\top Q_A^\top
+```
 
 ### 3. Why Linear Task Arithmetic Hurts Reasoning — and How Frobenius-Orthogonal Projection Fixes It
 
-To undo `Gen-2`'s forgetting $\delta_{\text{forget}} = \Delta W_2 - \Delta W_1$ while keeping `Gen-3`'s upgrade $\delta_{\text{new}} = \Delta W_3 - \Delta W_2$, natural trajectory de-forgetting writes:
+To undo `Gen-2`'s forgetting $`\delta_{\text{forget}} = \Delta W_2 - \Delta W_1`$ while keeping `Gen-3`'s upgrade $`\delta_{\text{new}} = \Delta W_3 - \Delta W_2`$, natural trajectory de-forgetting writes:
 
-$$\Delta W_{\text{linear}}(\gamma) = \Delta W_3 - \gamma\,(\Delta W_2 - \Delta W_1) = \Delta W_2 + 1.0\,\delta_{\text{new}} - \gamma\,\delta_{\text{forget}}$$
+```math
+\Delta W_{\text{linear}}(\gamma) = \Delta W_3 - \gamma\,(\Delta W_2 - \Delta W_1) = \Delta W_2 + 1.0\,\delta_{\text{new}} - \gamma\,\delta_{\text{forget}}
+```
 
-Unlike naive interpolation $(1 - \lambda)\Delta W_3 + \lambda \Delta W_1$ (which shrinks $\delta_{\text{new}}$ by $1 - \lambda$), $\Delta W_{\text{linear}}(\gamma)$ preserves `1.0x` of $\delta_{\text{new}}$. **However**, in sequential continual learning, `Gen-3`'s reasoning representations build *on top of* intermediate features first introduced in `Gen-2` ($\delta_{\text{forget}}$ and $\delta_{\text{new}}$ share non-trivial principal subspaces). Subtracting $\gamma\,\delta_{\text{forget}}$ globally inadvertently removes the foundational subspace that `Gen-3`'s reasoning relies on!
+Unlike naive interpolation $`(1 - \lambda)\Delta W_3 + \lambda \Delta W_1`$ (which shrinks $`\delta_{\text{new}}`$ by $`1 - \lambda`$), $`\Delta W_{\text{linear}}(\gamma)`$ preserves `1.0x` of $`\delta_{\text{new}}`$. **However**, in sequential continual learning, `Gen-3`'s reasoning representations build *on top of* intermediate features first introduced in `Gen-2` ($`\delta_{\text{forget}}`$ and $`\delta_{\text{new}}`$ share non-trivial principal subspaces). Subtracting $`\gamma\,\delta_{\text{forget}}`$ globally inadvertently removes the foundational subspace that `Gen-3`'s reasoning relies on!
 
 #### Exact Factored Frobenius-Orthogonal Projection
 
@@ -162,18 +176,22 @@ Unlike naive interpolation $(1 - \lambda)\Delta W_3 + \lambda \Delta W_1$ (which
   <img alt="Schematic: linear mode subtracts all of Gen-2 drift F; orthogonal mode subtracts only the component of F outside the protected subspace of Gen-3 minus Gen-2" src="docs/figures/projection-light.svg" width="100%">
 </picture>
 
-Let $\delta_{\text{new}} = U \Sigma V^\top$ be the thin QR-SVD of the latest capability update, and let $U_k \in \mathbb{R}^{d_{\text{out}} \times k}, V_k \in \mathbb{R}^{d_{\text{in}} \times k}$ span the top-$k$ singular directions capturing fraction $\tau \in [0, 1]$ (default `0.85`) of $\|\delta_{\text{new}}\|_F^2$. Define the protected matrix subspace:
+Let $`\delta_{\text{new}} = U \Sigma V^\top`$ be the thin QR-SVD of the latest capability update, and let $`U_k \in \mathbb{R}^{d_{\text{out}} \times k}, V_k \in \mathbb{R}^{d_{\text{in}} \times k}`$ span the top-$`k`$ singular directions capturing fraction $`\tau \in [0, 1]`$ (default `0.85`) of $`\Vert \delta_{\text{new}}\Vert _F^2`$. Define the protected matrix subspace:
 
-$$\mathcal{S}_k = \big\{ U_k C V_k^\top \;:\; C \in \mathbb{R}^{k \times k} \big\}$$
+```math
+\mathcal{S}_k = \big\{ U_k C V_k^\top \;:\; C \in \mathbb{R}^{k \times k} \big\}
+```
 
-Notice an important subtlety: two-sided null-projection $(I - U_k U_k^\top) F (I - V_k V_k^\top)$ is **over-restrictive** — it annihilates not only $\mathcal{S}_k$, but also the valid cross-subspace components $U_k U_k^\top F (I - V_k V_k^\top)$ and $(I - U_k U_k^\top) F V_k V_k^\top$. The **exact** minimal Frobenius-orthogonal projection of $F = B_f A_f$ onto $\mathcal{S}_k^\perp$ is:
+Notice an important subtlety: two-sided null-projection $`(I - U_k U_k^\top) F (I - V_k V_k^\top)`$ is **over-restrictive** — it annihilates not only $`\mathcal{S}_k`$, but also the valid cross-subspace components $`U_k U_k^\top F (I - V_k V_k^\top)`$ and $`(I - U_k U_k^\top) F V_k V_k^\top`$. The **exact** minimal Frobenius-orthogonal projection of $`F = B_f A_f`$ onto $`\mathcal{S}_k^\perp`$ is:
 
-$$F^{\perp} = F - U_k \big(U_k^\top F V_k\big) V_k^\top = B_f A_f - \underbrace{\Big[U_k (U_k^\top B_f)(A_f V_k)\Big]}_{B_{\text{proj}} \in \mathbb{R}^{d_{\text{out}} \times k}} \underbrace{V_k^\top}_{A_{\text{proj}} \in \mathbb{R}^{k \times d_{\text{in}}}}$$
+```math
+F^{\perp} = F - U_k \big(U_k^\top F V_k\big) V_k^\top = B_f A_f - \underbrace{\Big[U_k (U_k^\top B_f)(A_f V_k)\Big]}_{B_{\text{proj}} \in \mathbb{R}^{d_{\text{out}} \times k}} \underbrace{V_k^\top}_{A_{\text{proj}} \in \mathbb{R}^{k \times d_{\text{in}}}}
+```
 
 **Properties:**
-1. **Exact Orthogonality:** $\langle F^{\perp},\; U_k C V_k^\top \rangle_F = 0$ for *every* $C \in \mathbb{R}^{k \times k}$ (verified to $< 5 \times 10^{-5}$ in `--self-test`).
-2. **Minimum Perturbation:** Among all matrices orthogonal to $\mathcal{S}_k$, $F^{\perp}$ is the unique closest matrix to $F$ in Frobenius norm, with $\|F^{\perp}\|_F^2 = \|F\|_F^2 - \|(U_k^\top B_f)(A_f V_k)\|_F^2$.
-3. **Pure $O(d \cdot r^2)$ Low-Rank Execution:** Since $F^{\perp}$ is a rank-$(2r + k)$ factored sum, $\Delta W_{\text{orth}} = \Delta W_3 - \gamma F^{\perp}$ feeds directly into Thin QR-SVD with **zero dense matrix allocation**.
+1. **Exact Orthogonality:** $`\langle F^{\perp},\; U_k C V_k^\top \rangle_F = 0`$ for *every* $`C \in \mathbb{R}^{k \times k}`$ (verified to $`< 5 \times 10^{-5}`$ in `--self-test`).
+2. **Minimum Perturbation:** Among all matrices orthogonal to $`\mathcal{S}_k`$, $`F^{\perp}`$ is the unique closest matrix to $`F`$ in Frobenius norm, with $`\Vert F^{\perp}\Vert _F^2 = \Vert F\Vert _F^2 - \Vert (U_k^\top B_f)(A_f V_k)\Vert _F^2`$.
+3. **Pure $`O(d \cdot r^2)`$ Low-Rank Execution:** Since $`F^{\perp}`$ is a rank-$`(2r + k)`$ factored sum, $`\Delta W_{\text{orth}} = \Delta W_3 - \gamma F^{\perp}`$ feeds directly into Thin QR-SVD with **zero dense matrix allocation**.
 
 Combined with **Module Role Separation** (`--gamma-attn` vs. `--gamma-mlp`), stronger recovery can be targeted at attention projections (`q/k/v/o_proj`, which govern tool routing and span copying) while keeping MLP projections (`gate/up/down_proj`, which store domain knowledge and mathematical procedures) conservatively protected.
 
@@ -185,7 +203,7 @@ Combined with **Module Role Separation** (`--gamma-attn` vs. `--gamma-mlp`), str
 
 Before running the full 496-case acceptance suite, we compared five rank-64 QR-SVD weight-surgery formulations on a strictly held-out validation slice covering structured tool selection, exact parameter synthesis, abstention/refusal, and multi-step quantitative reasoning:
 
-| Method | Formula $(\Delta W_1, \Delta W_2, \Delta W_3)$ | SVD Energy (`r=64`) | Tool Selection | Exact Args | Refusal | Multi-Step Reasoning |
+| Method | Formula $`(\Delta W_1, \Delta W_2, \Delta W_3)`$ | SVD Energy (`r=64`) | Tool Selection | Exact Args | Refusal | Multi-Step Reasoning |
 |---|---|---:|---:|---:|---:|---:|
 | **`Gen-3` Baseline** | `(0.00, 0.00, 1.00)` | `100.00%` | `100.0%` | `60.0%` | `50.0%` | **`37.5%`** |
 | **Linear LoRA Soup (`WiSE-FT`)** | `(0.35, 0.00, 0.65)` | `99.98%` | `100.0%` | `70.0%` | **`62.5%`** | `25.0%` *(diluted)* |
@@ -194,7 +212,7 @@ Before running the full 496-case acceptance suite, we compared five rank-64 QR-S
 | **Coordinate Sign-Consensus** | Elementwise sign mask + SVD | `99.74%` | `100.0%` | `60.0%` | **`62.5%`** | `25.0%` |
 | **Trajectory De-Forgetting** | **`(0.40, -0.40, 1.00)`** | **`99.97%`** | **`100.0%`** | **`75.0% (+15%)`** | `50.0%` | **`37.5%` (preserved)** |
 
-**Key Takeaway:** Any formulation that scales $\Delta W_3$ below `1.0` (`0.65`, `0.75`, or even `0.88`) immediately degrades multi-step quantitative reasoning, whereas keeping `1.0 * ΔW_3` and subtracting `0.40 * (ΔW_2 - ΔW_1)` lifted held-out exact parameter accuracy by **+15.0 percentage points** without hurting dev reasoning.
+**Key Takeaway:** Any formulation that scales $`\Delta W_3`$ below `1.0` (`0.65`, `0.75`, or even `0.88`) immediately degrades multi-step quantitative reasoning, whereas keeping `1.0 * ΔW_3` and subtracting `0.40 * (ΔW_2 - ΔW_1)` lifted held-out exact parameter accuracy by **+15.0 percentage points** without hurting dev reasoning.
 
 ### 2. Full 496-Case Frozen Benchmark Evaluation (and Evidence of Subspace Entanglement)
 
@@ -214,8 +232,8 @@ Evaluating the global linear trajectory de-forgetting adapter (`ΔW_3 + 0.40(ΔW
 | **C. Multi-Step Quantitative Reasoning** | 36/202 | 72/202 | **120**/202 | 72/202 | **79 / 202 (39.1%)** | **−41 (Subspace Entanglement)** |
 | **D. Technical Diagram VQA** | — | 50/63 | **53**/63 | 50/63 | **52 / 63 (82.5%)** | −1 *(Gate Passed)* |
 
-**Why did Suite C drop from `120 → 79` even though $\delta_{2 \to 3}$ had weight `1.0`?**
-Look at the progression of Suite C across generations: `36 (Gen-1) → 72 (Gen-2) → 120 (Gen-3)`. Half of the reasoning capability (`36 → 72`) was constructed *inside* $\delta_{1 \to 2} = \Delta W_2 - \Delta W_1$, and `Gen-3`'s `72 → 120` weights composed on top of those intermediate features. Uniformly subtracting `0.40 * (ΔW_2 - ΔW_1)` across all singular directions partially dismantled that shared reasoning foundation — motivating the **Frobenius-Orthogonal Projection (`--mode orthogonal`)** and **Attention/MLP Selective (`--gamma-attn` / `--gamma-mlp`)** operators:
+**Why did Suite C drop from `120 → 79` even though $`\delta_{2 \to 3}`$ had weight `1.0`?**
+Look at the progression of Suite C across generations: `36 (Gen-1) → 72 (Gen-2) → 120 (Gen-3)`. Half of the reasoning capability (`36 → 72`) was constructed *inside* $`\delta_{1 \to 2} = \Delta W_2 - \Delta W_1`$, and `Gen-3`'s `72 → 120` weights composed on top of those intermediate features. Uniformly subtracting `0.40 * (ΔW_2 - ΔW_1)` across all singular directions partially dismantled that shared reasoning foundation — motivating the **Frobenius-Orthogonal Projection (`--mode orthogonal`)** and **Attention/MLP Selective (`--gamma-attn` / `--gamma-mlp`)** operators:
 
 - Across all 128 modules of our `r = 64` adapters on CPU, `--mode orthogonal` (`protect_energy = 0.80–0.90`) preserves **`93.99%–98.83%`** of the de-forgetting vector norm strictly orthogonal to `(Gen-3 - Gen-2)`'s dominant singular subspace while retaining **`99.984%–99.986%`** rank-64 SVD energy in `18.6s–63.9s`.
 
@@ -237,7 +255,7 @@ Either way installs the `lora-surgeon` command. The `python lora_surgeon.py ...`
 python lora_surgeon.py inspect Gen3-LoRA-F16.gguf
 ```
 
-### 2. Run Exact $O(d \cdot r^2)$ Generational Trajectory Diagnostics
+### 2. Run Exact $`O(d \cdot r^2)`$ Generational Trajectory Diagnostics
 
 ```bash
 python lora_surgeon.py diff Gen1-LoRA.gguf Gen2-LoRA.gguf Gen3-LoRA.gguf
@@ -295,7 +313,7 @@ python lora_surgeon.py convert adapter-f16.gguf -o ./peft_restored_dir
 
 ## Verification
 
-Run the built-in mathematical verification suite (checks trace inner-product exactness, Thin QR-SVD vs. dense SVD equivalence, and Frobenius orthogonality of $F^{\perp}$ against $\mathcal{S}_k$):
+Run the built-in mathematical verification suite (checks trace inner-product exactness, Thin QR-SVD vs. dense SVD equivalence, and Frobenius orthogonality of $`F^{\perp}`$ against $`\mathcal{S}_k`$):
 
 ```bash
 python lora_surgeon.py --self-test
