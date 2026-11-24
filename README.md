@@ -5,8 +5,52 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Zero PyTorch](https://img.shields.io/badge/dependencies-numpy%20%7C%20gguf%20%7C%20safetensors-success.svg)](pyproject.toml)
+[![CI](https://github.com/duy232633786-dot/lora-surgeon/actions/workflows/ci.yml/badge.svg)](https://github.com/duy232633786-dot/lora-surgeon/actions/workflows/ci.yml)
 
 `lora-surgeon` is a lightweight, single-file research toolkit and CLI for diagnosing, merging, converting, and **healing catastrophic forgetting across sequential LoRA generations** (`Gen-1 → Gen-2 → Gen-3`) — operating **directly on `llama.cpp` `.gguf` and HuggingFace PEFT `.safetensors` adapters on a standard CPU in seconds**, without downloading the multi-gigabyte base model, without a GPU, and without PyTorch.
+
+## Try It in 15 Seconds (Reproducible, No Download)
+
+The production numbers further down come from a private model and benchmark, so you can't rerun them. This toy experiment you **can** rerun. It trains three sequential LoRA generations in pure numpy, makes them forget in the same way, then heals Gen-3 with `lora-surgeon`:
+
+```bash
+git clone https://github.com/duy232633786-dot/lora-surgeon && cd lora-surgeon
+pip install -e .
+python examples/toy_continual_forgetting.py
+```
+
+How the sandbox works: there are 8 modules with `r = 16`. A fixed low-rank "world" teacher defines two tasks, **TOOL** and **REASON**, whose input subspaces partly overlap.
+- **Gen-1** trains on TOOL only.
+- **Gen-2** warm-starts from Gen-1 and trains on REASON level 1 at a high learning rate.
+- **Gen-3** warm-starts from Gen-2 and trains on full REASON at a lower learning rate, with no TOOL replay.
+
+The table shows held-out relative squared error ×100, averaged over 5 seeds (lower is better):
+
+| Adapter | TOOL error | REASON error | TOOL vs Gen-3 | REASON vs Gen-3 |
+|---|---:|---:|---:|---:|
+| Gen-1 | 0.00 | 52.21 | −18.31 | +52.21 |
+| Gen-2 | 25.24 | 31.94 | +6.93 | +31.94 |
+| Gen-3 | 18.31 | 0.00 | 0.00 | 0.00 |
+| `--mode linear` γ=0.2 | 15.37 | 1.86 | −2.94 | +1.86 |
+| `--mode linear` γ=0.4 | 14.45 | 7.45 | −3.86 | +7.45 |
+| `--mode linear` γ=0.6 | 15.55 | 16.76 | −2.76 | +16.76 |
+| **`--mode orthogonal` γ=0.2** | **14.40** | **1.63** | **−3.91** | **+1.63** |
+| **`--mode orthogonal` γ=0.4** | **11.93** | **6.54** | **−6.38** | **+6.54** |
+| **`--mode orthogonal` γ=0.6** | **10.90** | **14.72** | **−7.41** | **+14.72** |
+
+What the sandbox shows, and where it stops:
+- At every γ, the **orthogonal projection beats linear subtraction on both axes**: it recovers more TOOL and costs less REASON. This also holds for `--protect-energy` 0.70–0.95 and for `--rank 8`.
+- **Healing is not free.** Every setting gives back some REASON. Weight-space surgery moves you along a trade-off curve; it does not recover Gen-1 tool skill for free.
+- **If Gen-3 already recovered** (try `--replay 0.05`), de-forgetting only adds error. Run `lora-surgeon diff` and evaluate before you operate.
+- This is a linear toy where forgetting comes only from shared LoRA factors. It is not evidence about any particular LLM.
+
+The script also writes `examples/toy_out/gen{1,2,3}.gguf`, so you can run the CLI on real files:
+
+```bash
+lora-surgeon diff examples/toy_out/gen1.gguf examples/toy_out/gen2.gguf examples/toy_out/gen3.gguf
+lora-surgeon deforget --v1 examples/toy_out/gen1.gguf --v2 examples/toy_out/gen2.gguf \
+  --v3 examples/toy_out/gen3.gguf --mode orthogonal --gamma 0.4 -o examples/toy_out/healed.gguf
+```
 
 ---
 
@@ -158,10 +202,12 @@ Look at the progression of Suite C across generations: `36 (Gen-1) → 72 (Gen-2
 ## Installation & Quickstart
 
 ```bash
-pip install numpy gguf safetensors
-# Or install directly from the repository:
+pip install git+https://github.com/duy232633786-dot/lora-surgeon
+# Or from a local clone (editable):
 pip install -e .
 ```
+
+Either way installs the `lora-surgeon` command. The `python lora_surgeon.py ...` form below is equivalent.
 
 ### 1. Inspect an Adapter's Layerwise Norm Profile (`.gguf` or `.safetensors`)
 
