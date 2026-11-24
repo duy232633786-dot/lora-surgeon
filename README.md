@@ -125,7 +125,7 @@ Inspecting the three sequential adapters ($\Delta W_1, \Delta W_2, \Delta W_3$) 
 
 Materializing dense $\Delta W = \frac{\alpha}{r} B A \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ matrices across 128+ layers of modern LLMs wastes gigabytes of RAM and tens of seconds on CPU. Given any two low-rank sums $\Delta W_1 = B_1 A_1$ (rank $R_1$) and $\Delta W_2 = B_2 A_2$ (rank $R_2$), `lora-surgeon` computes exact Frobenius inner products via cyclic trace permutation:
 
-$$\langle B_1 A_1,\; B_2 A_2 \rangle_F = \operatorname{tr}(A_1^\top B_1^\top B_2 A_2) = \operatorname{tr}\!\Big(\underbrace{(B_1^\top B_2)}_{R_1 \times R_2} \underbrace{(A_2 A_1^\top)}_{R_2 \times R_1}\Big)$$
+$$\langle B_1 A_1,\; B_2 A_2 \rangle_F = \mathrm{tr}(A_1^\top B_1^\top B_2 A_2) = \mathrm{tr}\!\Big(\underbrace{(B_1^\top B_2)}_{R_1 \times R_2} \underbrace{(A_2 A_1^\top)}_{R_2 \times R_1}\Big)$$
 
 Differences $\Delta W_2 - \Delta W_1 = [B_2, -B_1][A_2^\top, A_1^\top]^\top$ are evaluated identically at rank $R_1 + R_2$, requiring **zero $d_{\text{out}} \times d_{\text{in}}$ allocations** and running in `< 2s` on CPU.
 
